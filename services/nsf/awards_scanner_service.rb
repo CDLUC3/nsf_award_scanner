@@ -20,7 +20,7 @@ module Nsf
     end
 
     def find_award_by_title(plan:)
-      return nil if plan.nil? || plan.fetch('title', nil).nil?
+      return {} if plan.nil? || plan.fetch('title', nil).nil?
 
       url = "#{@awards_path}" % { words: cleanse_title(title: plan['title']) }
       url = URI.encode(url.gsub(/\s/, '+'))
@@ -28,7 +28,7 @@ module Nsf
       resp = HTTParty.get(url, headers: headers)
       p "Received a #{resp.code} from the NSF Awards API for: #{url}" unless resp.code == 200
       p resp.body unless resp.code == 200
-      return nil unless resp.code == 200
+      return {} unless resp.code == 200
 
       payload = JSON.parse(resp.body)
       scores = []
@@ -41,6 +41,10 @@ module Nsf
           pi: "#{award.fetch('piFirstName', nil)} #{award.fetch('piLastName', nil)}",
           org: award.fetch('awardeeName', nil)
         )
+
+        # If the score is above 0.6 but below 0.9 record it so we can evaluate
+        record_findings(plan: plan, json: payload, score: score) if score >= 0.5
+
         scores << { score: score, hash: award } if score >= 0.9
       end
       filter_scores(scores: scores)
@@ -85,6 +89,20 @@ module Nsf
         principal_investigators: pis,
         award_id: "#{SHOW_AWARD_URL}#{top_score.fetch(:hash, {}).fetch('id', '')}"
       }
+    end
+
+    def record_findings(plan:, json:, score:)
+      file = File.open("#{Dir.pwd}/findings.log", 'a')
+      file.puts '==================================================='
+      file.puts '==================================================='
+      file.puts 'DMP JSON RECEIVED FROM DMPHUB:'
+      file.puts plan.to_json
+      file.puts '---------------------------------------------------'
+      file.puts 'NSF AWARD API RESULTS:'
+      file.puts json.to_json
+      file.puts '---------------------------------------------------'
+      file.puts score.to_json
+      file.close
     end
 
     def process_response(plan:, title:, pi:, org:)

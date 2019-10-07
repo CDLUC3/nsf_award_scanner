@@ -27,7 +27,7 @@ module Dmphub
     def data_management_plans
       retrieve_auth_token if @token.nil?
       p @errors.join(', ') if @errors.any?
-      return false if @token.nil?
+      return [] if @token.nil?
 
       resp = HTTParty.get(@index_path, headers: authenticated_headers)
       payload = JSON.parse(resp.body)

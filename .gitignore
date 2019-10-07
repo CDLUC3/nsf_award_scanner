@@ -52,4 +52,5 @@ build-iPhoneSimulator/
 # Ignore config stuff
 config.yml
 processed.yml
+findings.log
 

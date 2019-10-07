@@ -31,15 +31,15 @@ get '/scan' do
       doi = plan['uri'].gsub('http://localhost:3003/api/v1/data_management_plans/', '')
 
 #next unless ['10.80030/9ddh-tf78', '10.80030/0cd0-ce69', '10.80030/yxcw-kh07'].include?(doi)
-next unless ['10.80030/yxcw-kh07'].include?(doi)
+#next unless ['10.80030/yxcw-kh07'].include?(doi)
 
-      next if processed.include?(plan['uri'])
+      next if processed.include?(doi)
 
       out << "Scanning Awards API for DMP: `#{plan['title']}` (#{doi})<br>"
       out << "&nbsp;&nbsp;&nbsp;&nbsp;with author(s): #{plan['authors'].gsub('|', ' from ')}<br>"
 
-      award = nsf.find_award_by_title(plan: plan)
-      scanned << plan['uri']
+      award = nsf.find_award_by_title(plan: plan) || {}
+      scanned << doi
 
       out << '&nbsp;&nbsp;no matches found<br>' if award.empty?
       if award.any?
@@ -58,10 +58,16 @@ next unless ['10.80030/yxcw-kh07'].include?(doi)
       end
       out << "<hr>"
     end
+
+p "PROC"
+p scanned
+p "TOTAL"
+p processed + scanned
+
+    # Always write out the processed file even if code is interrupted!
+    file = File.open("#{Dir.pwd}/processed.yml", 'w')
+    file.write((processed + scanned).flatten.uniq)
+    file.close
   end
 
-  # Always write out the processed file even if code is interrupted!
-  file = File.open("#{Dir.pwd}/processed.yml", 'w')
-  file.write((processed + scanned).flatten.uniq)
-  file.close
 end
