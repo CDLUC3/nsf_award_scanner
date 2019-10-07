@@ -1,7 +1,6 @@
 # NSF Awards API Harvester
 
-This small Ruby/Sinatra app is an example of a system that works with the (DMPHub)
-[https://github.com/CDLUC3/dmphub]. It retrieves a list of DMP metadata from the hub and then queries the NSF Awards API by title to find matches. If matches are found, it compare the title of the award to the title of the plan along with the name and affiliations oof any known authors or investigators.
+This small Ruby/Sinatra app is an example of a system that works with the [DMPHub](https://github.com/CDLUC3/dmphub). It retrieves a list of DMP metadata from the hub and then queries the NSF Awards API by title to find matches. If matches are found, it compare the title of the award to the title of the plan along with the name and affiliations oof any known authors or investigators.
 
 To install:
 - Clone this repository (you must have Ruby 2.4+ installed)
