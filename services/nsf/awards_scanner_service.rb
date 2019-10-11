@@ -19,11 +19,16 @@ module Nsf
       @errors = []
     end
 
-    def find_award_by_title(plan:)
+    def find_award_by_title(agency:, plan:)
       return {} if plan.nil? || plan.fetch('title', nil).nil?
 
       url = "#{@awards_path}" % { words: cleanse_title(title: plan['title']) }
       url = URI.encode(url.gsub(/\s/, '+'))
+      fields = %w[id title piName piEmail abstractText projectOutComesReport poName poEmail
+                  dunsNumber startDate expDate awardeeName fundProgramName pdPIName perfLocation
+                  primaryProgram transType awardee publicationResearch publicationConference
+                  fundAgencyCode awardAgencyCode].join(',')
+      url += "&printFields=#{fields}"
 
       resp = HTTParty.get(url, headers: headers)
       p "Received a #{resp.code} from the NSF Awards API for: #{url}" unless resp.code == 200
@@ -33,19 +38,19 @@ module Nsf
       payload = JSON.parse(resp.body)
       scores = []
       payload.fetch('response', {}).fetch('award', []).each do |award|
-        next if award.fetch('title', nil).nil? || award.fetch('piLastName', nil).nil?
+        next if award.fetch('title', nil).nil? || award.fetch('pdPIName', nil).nil?
 
         score = process_response(
           plan: plan,
           title: award.fetch('title', nil),
-          pi: "#{award.fetch('piFirstName', nil)} #{award.fetch('piLastName', nil)}",
+          pi: award.fetch('pdPIName', nil),
           org: award.fetch('awardeeName', nil)
         )
 
         # If the score is above 0.6 but below 0.9 record it so we can evaluate
-        record_findings(plan: plan, json: payload, score: score) if score >= 0.5
+        record_findings(plan: plan, json: payload, score: score) if score >= 0.5 && score <= 0.64
 
-        scores << { score: score, hash: award } if score >= 0.9
+        scores << { score: score, hash: award } if score >= 0.64
       end
       filter_scores(scores: scores)
     end
@@ -74,20 +79,28 @@ module Nsf
 
       pis = scores.select { |s| s.fetch(:hash, {}).fetch('title', '') == top_score_title }
                   .collect do |s|
-                    names = [
-                      s.fetch(:hash, {}).fetch('piFirstName', ''),
-                      s.fetch(:hash, {}).fetch('piLastName', '')
-                    ]
-
                     {
-                      name: names.join(' '),
+                      name: s.fetch(:hash, {}).fetch('pdPIName', ''),
+                      email: s.fetch(:hash, {}).fetch('piEmail', ''),
                       organization: s.fetch(:hash, {}).fetch('awardeeName', '')
                     }
                   end
       {
         title: top_score_title,
+        description: top_score.fetch(:hash, {}).fetch('abstractText', nil),
+        project_start: top_score.fetch(:hash, {}).fetch('startDate', nil),
+        project_end: top_score.fetch(:hash, {}).fetch('expDate', nil),
         principal_investigators: pis,
-        award_id: "#{SHOW_AWARD_URL}#{top_score.fetch(:hash, {}).fetch('id', '')}"
+        program_officer: {
+          name: top_score.fetch(:hash, {}).fetch('poName', nil),
+          email: top_score.fetch(:hash, {}).fetch('poEmail', nil),
+          organization: top_score.fetch(:hash, {}).fetch('awardAgencyCode', '4900')
+        },
+        award_id: "#{SHOW_AWARD_URL}#{top_score.fetch(:hash, {}).fetch('id', '')}",
+        identifiers: {
+          fund_program: top_score.fetch(:hash, {}).fetch('fundProgramName', nil),
+          primary_program: top_score.fetch(:hash, {}).fetch('primaryProgram', nil)
+        }
       }
     end
 

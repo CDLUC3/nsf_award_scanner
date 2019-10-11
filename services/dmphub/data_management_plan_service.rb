@@ -8,7 +8,7 @@ module Dmphub
       'Accept': 'application/json'
     }.freeze
 
-    NSF_DOI = 'https://dx.doi.org/10.13039/100000001'.freeze
+    NSF_DOI = 'http://dx.doi.org/10.13039/100000001'.freeze
 
     def initialize(config:)
       @client_uid = "#{config['client_uid']}"
@@ -49,18 +49,14 @@ module Dmphub
 
       target = dmp['uri']
       body = award_to_rda_common_standard(dmp: dmp, award: award)
-
-p body.inspect
-
       return false if body.nil?
 
       resp = HTTParty.put(target, body: body.to_json, headers: authenticated_headers)
-      payload = JSON.parse(resp.body)
 
 p resp.body
-p resp.code
 
-      @errors << "#{payload['error'] - payload['error_description']}" unless resp.code == 200
+      payload = JSON.parse(resp.body)
+      @errors << "#{payload['error']} - #{payload['error_description']}" unless resp.code == 200
       @errors << payload.fetch('errors', [])
       p @errors.flatten.join(', ') if @errors.any?
 
@@ -77,6 +73,7 @@ p resp.code
       staff = award[:principal_investigators].select { |p| !p[:name].nil? }.map do |pi|
         {
           "name": pi[:name],
+          "mbox": pi[:email],
           "contributor_type": 'investigator',
           "organizations": [{
             "name": pi[:organization]
@@ -84,14 +81,34 @@ p resp.code
         }
       end
 
+      unless award[:program_officer][:name].nil?
+        staff << {
+          "name": award[:program_officer][:name],
+          "mbox": award[:program_officer][:email],
+          "contributor_type": 'program_officer',
+          "organizations": [{
+            "name": award[:program_officer][:organization] == '4900' ? 'National Science Foundation (NSF)' : 'National Aeronautics and Space Administration (NASA)'
+          }]
+        }
+      end
+
+      ids = []
+      ids << { 'category': 'duns', value: award[:identifiers][:duns] } unless award[:identifiers][:duns].nil?
+      ids << { 'category': 'sub_program', value: award[:identifiers][:fund_program] } unless award[:identifiers][:fund_program].nil?
+      ids << { 'category': 'program', value: award[:identifiers][:primary_program] } unless award[:identifiers][:primary_program].nil?
+
       {
         "dmp": {
           "dm_staff": staff,
           "project": {
+            "description": award[:description],
+            "start_on": award[:project_start],
+            "end_on": award[:project_end],
             "funding": [{
               "funder_id": NSF_DOI,
               "grant_id": award[:award_id],
-              "funding_status": "granted"
+              "funding_status": "granted",
+              "award_ids": ids
             }]
           }
         }
