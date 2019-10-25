@@ -32,12 +32,26 @@ module Dmphub
       resp = HTTParty.get(@index_path, headers: authenticated_headers)
       payload = JSON.parse(resp.body)
 
-      @errors << "#{payload['error']} - #{payload['error_description']}" unless resp.code == 200
-      @errors << payload.fetch('errors', [])
-      p @errors.flatten.join(', ') if @errors.any?
-      return [] unless resp.code == 200 || payload.fetch('content', nil).present?
+      # Expecting the following format from DMP Regsitry:
+      # {"funding"=>{
+      #    "projectTitle"=>"Research on cool genomic anomolies",
+      #    "projectStartOn"=>"2012-03-26 14:28:33 UTC",
+      #    "projectEndOn"=>"2014-03-26 14:28:33 UTC",
+      #    "authors"=>["John Doe|Montana State University (MSU)"]
+      #    "update_url"=>"/api/v0/awards/1",
+      #    "funderId"=>"http://dx.doi.org/10.13039/100000001",
+      #    "funderName"=>"National Science Foundation (NSF)",
+      #    "grantId"=>nil,
+      #    "fundingStatus"=>"planned"
+      # }}
+      #
+      # The update_url is the target we want to send changes to!
 
-      payload['content'].fetch('dmps', [])
+      @errors << "#{payload['errors']}" unless resp.code == 200
+      p @errors if @errors.present?
+      return [] unless resp.code == 200 || payload.fetch('items', nil).present?
+
+      payload['items']
     end
 
     def register_award(dmp:, award:)

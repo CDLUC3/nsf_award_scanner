@@ -20,9 +20,9 @@ module Nsf
     end
 
     def find_award_by_title(agency:, plan:)
-      return {} if plan.nil? || plan.fetch('title', nil).nil?
+      return {} if plan.nil? || plan.fetch('projectTitle', nil).nil?
 
-      url = "#{@awards_path}" % { words: cleanse_title(title: plan['title']) }
+      url = "#{@awards_path}" % { words: cleanse_title(title: plan['projectTitle']) }
       url = URI.encode(url.gsub(/\s/, '+'))
       fields = %w[id title piName piEmail abstractText projectOutComesReport poName poEmail
                   dunsNumber startDate expDate awardeeName fundProgramName pdPIName perfLocation

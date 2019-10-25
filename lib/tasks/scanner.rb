@@ -17,20 +17,27 @@ p 'No DOIs found' if plans.empty?
 counter = 0
 
 plans.each do |plan|
-  doi = plan['uri'].gsub('http://localhost:3003/api/v1/data_management_plans/', '')
+  next unless plan['funding'].present? && plan['funding']['update_url'].present?
+
+  update_url = plan['funding']['update_url']
+  title = plan['funding']['projectTitle']
+  start_on = plan['funding']['startOn']
+  end_on = plan['funding']['endOn']
+  auths = plan['funding']['authors']
 
 #break if counter > 10
 #next unless ['10.80030/5zhm-9t89'].include?(doi)
 
-  next if processed.include?("#{doi}\n")
+  next if processed.include?("#{update_url}\n")
 
   counter += 1
-  p "#{counter + 1}) Scanning Awards API for DMP: `#{plan['title']}` (#{doi})"
-  p "  with author(s): #{plan['authors'].gsub('|', ' from ')}"
+  p "#{counter + 1}) Scanning Awards API for DMP: `#{title}` (#{update_url})"
+  p "  with author(s): #{auths.gsub('|', ' from ')}"
 
   #begin
-    award = nsf.find_award_by_title(agency: 'NSF', plan: plan) || {}
-    recorder.puts doi
+    award = nsf.find_award_by_title(agency: 'NSF', plan: plan['funding']) || {}
+    recorder.puts update_url
+
     p '    no matches found' if award.empty?
     if award.any?
       p "     Found award: #{award[:award_id]}"
