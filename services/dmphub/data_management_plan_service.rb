@@ -1,7 +1,40 @@
 require 'httparty'
 
 module Dmphub
+  # Interface to the DMP Registry's API
   class DataManagementPlanService
+
+    # Expecting the following format from DMP Regsitry:
+    # {
+    #   "application"=>"Dmphub",
+    #   "status"=>"OK",
+    #   "time"=>"2019-10-26 15:33:59 UTC",
+    #   "caller"=>"national_science_foundation",
+    #   "source"=>"GET http://localhost:3003/api/v0/awards?page=2&per_page=25",
+    #   "page"=>2,
+    #   "per_page"=>25,
+    #   "total_items"=>662,
+    #   "prev"=>"http://localhost:3003/api/v0/awards?page=1&per_page=25",
+    #   "next"=>"http://localhost:3003/api/v0/awards?page=3&per_page=25",
+    #   "items"=>[
+    #     {
+    #       "funding"=>{
+    #         "projectTitle"=>"Research on cool genomic anomolies",
+    #         "projectStartOn"=>"2012-03-26 14:28:33 UTC",
+    #         "projectEndOn"=>"2014-03-26 14:28:33 UTC",
+    #         "authors"=>["John Doe|Montana State University (MSU)"]
+    #         "update_url"=>"http://localhost:3003/api/v0/awards/1",
+    #         "funderId"=>"http://dx.doi.org/10.13039/100000001",
+    #         "funderName"=>"National Science Foundation (NSF)",
+    #         "grantId"=>nil,
+    #         "fundingStatus"=>"planned"
+    #       }
+    #     }
+    #   ]
+    # }
+    #
+    # The `update_url` is the target we want to send our changes to!
+    # The `next` is the url for the next page
 
     DEFAULT_HEADERS = headers = {
       'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
@@ -17,72 +50,48 @@ module Dmphub
 
       @base_path = "#{config['base_path']}"
       @auth_path = "#{@base_path}#{config['token_path']}"
-      @index_path = "#{@base_path}#{config['index_path']}"
-      @update_path = "#{@base_path}#{config['update_path']}"
       @errors = []
 
       retrieve_auth_token
     end
 
-    def data_management_plans
+    def data_management_plans(url:)
       retrieve_auth_token if @token.nil?
-      p @errors.join(', ') if @errors.any?
       return [] if @token.nil?
 
-      resp = HTTParty.get(@index_path, headers: authenticated_headers)
+      resp = HTTParty.get(url, headers: authenticated_headers)
       payload = JSON.parse(resp.body)
-
-      # Expecting the following format from DMP Regsitry:
-      # {"funding"=>{
-      #    "projectTitle"=>"Research on cool genomic anomolies",
-      #    "projectStartOn"=>"2012-03-26 14:28:33 UTC",
-      #    "projectEndOn"=>"2014-03-26 14:28:33 UTC",
-      #    "authors"=>["John Doe|Montana State University (MSU)"]
-      #    "update_url"=>"/api/v0/awards/1",
-      #    "funderId"=>"http://dx.doi.org/10.13039/100000001",
-      #    "funderName"=>"National Science Foundation (NSF)",
-      #    "grantId"=>nil,
-      #    "fundingStatus"=>"planned"
-      # }}
-      #
-      # The update_url is the target we want to send changes to!
-
-      @errors << "#{payload['errors']}" unless resp.code == 200
-      p @errors if @errors.present?
-      return [] unless resp.code == 200 || payload.fetch('items', nil).present?
-
-      payload['items']
+      {
+        next_page: payload.fetch(payload['next'], nil),
+        items: payload.fetch('items', []),
+        errors: payload.fetch('errors', [])
+      }
     end
 
-    def register_award(dmp:, award:)
-      return false if dmp.nil? or award.nil?
+    def register_award(funding:, award:)
+      return false if funding.nil? || award.nil?
 
       retrieve_auth_token if @token.nil?
-      p @errors.join(', ') if @errors.any?
       return false if @token.nil?
 
-      target = dmp['uri']
-      body = award_to_rda_common_standard(dmp: dmp, award: award)
-      return false if body.nil?
+      target = funding['update_url']
+      body = award_to_rda_common_standard(funding: funding, award: award)
+      return false if body.nil? || target.nil?
 
       resp = HTTParty.put(target, body: body.to_json, headers: authenticated_headers)
-
-p resp.body
-
       payload = JSON.parse(resp.body)
-      @errors << "#{payload['error']} - #{payload['error_description']}" unless resp.code == 200
-      @errors << payload.fetch('errors', [])
-      p @errors.flatten.join(', ') if @errors.any?
-
+      p payload['errors'] unless payload['error'].nil?
       resp.code == 200
+    end
+
+    def register_person(funding:, award:)
+
     end
 
     private
 
-    def award_to_rda_common_standard(dmp:, award:)
-      return nil if dmp['uri'].nil?
-
-      doi = dmp['uri'].gsub('http://localhost:3003/api/v1/data_management_plans/', '')
+    def award_to_rda_common_standard(funding:, award:)
+      return nil if funding['dmpDOI'].nil?
 
       staff = award[:principal_investigators].select { |p| !p[:name].nil? }.map do |pi|
         {
@@ -107,19 +116,23 @@ p resp.body
       end
 
       ids = []
-      ids << { 'category': 'duns', value: award[:identifiers][:duns] } unless award[:identifiers][:duns].nil?
       ids << { 'category': 'sub_program', value: award[:identifiers][:fund_program] } unless award[:identifiers][:fund_program].nil?
       ids << { 'category': 'program', value: award[:identifiers][:primary_program] } unless award[:identifiers][:primary_program].nil?
 
+      # We send back the `dmpDOI` so that the DMPRegistry can verify that we are
+      # working with the correct DMP
       {
         "dmp": {
+          "dmpIds": [{
+            'category': 'doi',
+            'value': funding['dmpDOI']
+          }],
           "dm_staff": staff,
           "project": {
-            "description": award[:description],
             "start_on": award[:project_start],
             "end_on": award[:project_end],
             "funding": [{
-              "funder_id": NSF_DOI,
+              "funder_id": funding['funderId'],
               "grant_id": award[:award_id],
               "funding_status": "granted",
               "award_ids": ids
@@ -138,7 +151,7 @@ p resp.body
       resp = HTTParty.post(@auth_path, body: payload, headers: DEFAULT_HEADERS)
       response = JSON.parse(resp.body)
       @token = response if resp.code == 200
-      @errors << "#{payload['error']} - #{payload['error_description']}" unless resp.code == 200
+      p "#{payload['error']} - #{payload['error_description']}" unless resp.code == 200
     rescue StandardError => se
       @errors << se.message
       return nil

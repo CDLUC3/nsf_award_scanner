@@ -19,10 +19,10 @@ module Nsf
       @errors = []
     end
 
-    def find_award_by_title(agency:, plan:)
-      return {} if plan.nil? || plan.fetch('projectTitle', nil).nil?
+    def find_award_by_title(agency:, funding:)
+      return {} if funding.nil? || funding.fetch('projectTitle', nil).nil?
 
-      url = "#{@awards_path}" % { words: cleanse_title(title: plan['projectTitle']) }
+      url = "#{@awards_path}" % { words: cleanse_title(title: funding['projectTitle']) }
       url = URI.encode(url.gsub(/\s/, '+'))
       fields = %w[id title piName piEmail abstractText projectOutComesReport poName poEmail
                   dunsNumber startDate expDate awardeeName fundProgramName pdPIName perfLocation
@@ -41,14 +41,14 @@ module Nsf
         next if award.fetch('title', nil).nil? || award.fetch('pdPIName', nil).nil?
 
         score = process_response(
-          plan: plan,
+          funding: funding,
           title: award.fetch('title', nil),
           pi: award.fetch('pdPIName', nil),
           org: award.fetch('awardeeName', nil)
         )
 
         # If the score is above 0.6 but below 0.9 record it so we can evaluate
-        record_findings(plan: plan, json: payload, score: score) if score >= 0.5 && score <= 0.64
+        record_findings(funding: funding, json: payload, score: score) if score >= 0.5 && score <= 0.64
 
         scores << { score: score, hash: award } if score >= 0.64
       end
@@ -104,12 +104,12 @@ module Nsf
       }
     end
 
-    def record_findings(plan:, json:, score:)
+    def record_findings(funding:, json:, score:)
       file = File.open("#{Dir.pwd}/findings.log", 'a')
       file.puts '==================================================='
       file.puts '==================================================='
-      file.puts 'DMP JSON RECEIVED FROM DMPHUB:'
-      file.puts plan.to_json
+      file.puts 'DMP JSON RECEIVED FROM DMPRegistry:'
+      file.puts funding.to_json
       file.puts '---------------------------------------------------'
       file.puts 'NSF AWARD API RESULTS:'
       file.puts json.to_json
@@ -118,25 +118,30 @@ module Nsf
       file.close
     end
 
-    def process_response(plan:, title:, pi:, org:)
+    def process_response(funding:, title:, pi:, org:)
       title_score = proximity_check(
-        text_a: cleanse_title(title: plan.fetch('title', nil)),
+        text_a: cleanse_title(title: funding.fetch('projectTitle', nil)),
         text_b: cleanse_title(title: title)
       )
-      return title_score if plan.fetch('authors', nil).nil?
+      return title_score if funding.fetch('authors', nil).nil?
 
-      persons = plan.fetch('authors', '').split(', ')
+      persons = funding.fetch('authors', [])
       pi_score = persons.reduce(0.0) { |sum, p| sum + proximity_check(text_a: p, text_b: pi) }
 
+      return 0.0 if funding.nil? || title.nil?
 
-      return 0.0 if plan.nil? || title.nil?
-
-      auth_hash = plan.fetch('authors', '').split(', ').map { |a| parse_author(author: a) }
+      auth_hash = persons.map { |a|
+        a.split('|')
+        {
+          author: a[0],
+          organization: a[1]
+        }
+      }
       auths = auth_hash.collect { |a| a[:author] }
       orgs = auth_hash.collect { |o| o[:organization] }
 
       title_score = title_scoring(
-        title_a: cleanse_title(title: plan.fetch('title', nil)),
+        title_a: cleanse_title(title: funding.fetch('projectTitle', nil)),
         title_b: cleanse_title(title: title)
       )
       return title_score if (orgs.empty? && auths.empty?) || title_score < 0.7
