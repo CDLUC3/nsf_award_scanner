@@ -28,8 +28,8 @@ class ProcessingService
   private
 
   def open_processed
-    text = File.read("#{Dir.pwd}/processed.yml").gsub(/\r\n?/, '\n')
-    @processed = text.each_line.map { |line| line }
+    text = File.read("#{Dir.pwd}/processed.yml")
+    @processed = text.each_line.map { |line| line.gsub(/\n/, '') }
   end
 
   # Recursively process the results returned by DMPRegistry
@@ -41,19 +41,27 @@ class ProcessingService
     p "Unable to retrieve funding information from DMPRegistry!" if resp[:errors].any?
     p resp[:errors]  if resp[:errors].any?
 
+p @processed
+
     resp[:items].each do |item|
       next if item['funding'].nil? || item['funding']['dmpDOI'].nil?
+      # Don't process one we've already updated
+      next if @processed.include?(item['funding']['update_url'])
 
       award = scan_for_awards(item: item)
+      @recorder.puts item['funding']['update_url']
       next if award.nil?
 
       # Register the award with the DMP Registry
-      @dmphub.register_award(funding: item.fetch('funding', {}), award: award)
+      p "  -- Sending updated award information to the DMP Registry"
+      doi = @dmphub.register_award(funding: item.fetch('funding', {}), award: award)
+
       # record that we have processed this one
-      @recorder.puts item['funding']['update_url']
+      p "  -- Updated #{doi}" if doi
     end
 
-    next_page(url: resp[:next]) unless resp[:next].nil?
+    p "--------------------------------------------"
+    next_page(url: resp[:next_page]) unless resp[:next_page].nil?
   end
 
   # Scan the NSF Awards API

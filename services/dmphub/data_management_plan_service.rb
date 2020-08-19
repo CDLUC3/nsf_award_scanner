@@ -62,7 +62,7 @@ module Dmphub
       resp = HTTParty.get(url, headers: authenticated_headers)
       payload = JSON.parse(resp.body)
       {
-        next_page: payload.fetch(payload['next'], nil),
+        next_page: payload.fetch('next', nil),
         items: payload.fetch('items', []),
         errors: payload.fetch('errors', [])
       }
@@ -78,10 +78,17 @@ module Dmphub
       body = award_to_rda_common_standard(funding: funding, award: award)
       return false if body.nil? || target.nil?
 
+      # TODO: For some reason the hub is returning URLs with port 3000 even when its
+      #       running on port 3003, so this is a hack to temporarily address that
+      target = target.gsub(':3000', ':3003')
+
       resp = HTTParty.put(target, body: body.to_json, headers: authenticated_headers)
+
+      return resp.headers['location'] if resp.code == 204
+
       payload = JSON.parse(resp.body)
       p payload['errors'] unless payload['error'].nil?
-      resp.code == 200
+      return false
     end
 
     def register_person(funding:, award:)
@@ -97,7 +104,7 @@ module Dmphub
         {
           "name": pi[:name],
           "mbox": pi[:email],
-          "contributor_type": 'investigator',
+          "contributorType": 'investigator',
           "organizations": [{
             "name": pi[:organization]
           }]
@@ -108,7 +115,7 @@ module Dmphub
         staff << {
           "name": award[:program_officer][:name],
           "mbox": award[:program_officer][:email],
-          "contributor_type": 'program_officer',
+          "contributorType": 'program_officer',
           "organizations": [{
             "name": award[:program_officer][:organization] == '4900' ? 'National Science Foundation (NSF)' : 'National Aeronautics and Space Administration (NASA)'
           }]
@@ -127,15 +134,15 @@ module Dmphub
             'category': 'doi',
             'value': funding['dmpDOI']
           }],
-          "dm_staff": staff,
+          "dmStaff": staff,
           "project": {
-            "start_on": award[:project_start],
-            "end_on": award[:project_end],
+            "startOn": award[:project_start],
+            "endOn": award[:project_end],
             "funding": [{
-              "funder_id": funding['funderId'],
-              "grant_id": award[:award_id],
-              "funding_status": "granted",
-              "award_ids": ids
+              "funderId": funding['funderId'],
+              "grantId": award[:award_id],
+              "fundingStatus": "granted",
+              "awardIds": ids
             }]
           }
         }
