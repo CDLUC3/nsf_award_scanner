@@ -1,29 +1,34 @@
-require 'httparty'
+# frozen_string_literal: true
+
 require 'amatch'
+require 'httparty'
 require 'stopwords'
 
 module Nsf
   # This service uses the NSF Award Search Web API (ASWA). For more information
   # refer to: https://www.nsf.gov/developer/
+  # rubocop:disable Metrics/ClassLength
   class AwardsScannerService
-
-    SHOW_AWARD_URL = 'https://www.nsf.gov/awardsearch/showAward?AWD_ID='.freeze
+    SHOW_AWARD_URL = 'https://www.nsf.gov/awardsearch/showAward?AWD_ID='
 
     include Amatch
 
     def initialize(config:)
-      @agent = "California Digital Library (CDL) - contact: brian.riley@ucop.edu"
-
-      @base_path = "#{config['base_path']}"
+      @agent = 'California Digital Library (CDL) - contact: brian.riley@ucop.edu'
+      @base_path = config['base_path'].to_s
+      # rubocop:disable Style/FormatStringToken
       @awards_path = "#{@base_path}#{config['awards_path']}?keyword=%{words}"
+      # rubocop:enable Style/FormatStringToken
       @errors = []
     end
 
-    def find_award_by_title(agency:, funding:)
+    # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+    # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
+    def find_award_by_title(_agency:, funding:)
       return {} if funding.nil? || funding.fetch('projectTitle', nil).nil?
 
-      url = "#{@awards_path}" % { words: cleanse_title(title: funding['projectTitle']) }
-      url = URI.encode(url.gsub(/\s/, '+'))
+      url = format(@awards_path.to_s, words: cleanse_title(title: funding['projectTitle']))
+      url = CGI.encode(url.gsub(/\s/, '+'))
       fields = %w[id title piName piEmail abstractText projectOutComesReport poName poEmail
                   dunsNumber startDate expDate awardeeName fundProgramName pdPIName perfLocation
                   primaryProgram transType awardee publicationResearch publicationConference
@@ -43,7 +48,7 @@ module Nsf
         score = process_response(
           funding: funding,
           title: award.fetch('title', nil),
-          pi: award.fetch('pdPIName', nil),
+          investigator: award.fetch('pdPIName', nil),
           org: award.fetch('awardeeName', nil)
         )
 
@@ -54,9 +59,12 @@ module Nsf
       end
       filter_scores(scores: scores)
     end
+    # rubocop:enable Metrics/AbcSize, Metrics/MethodLength
+    # rubocop:enable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
 
     def parse_author(author:)
       return nil if author.nil?
+
       parts = author.split('|')
       { author: parts.first, organization: parts.last }
     end
@@ -71,10 +79,11 @@ module Nsf
       }
     end
 
+    # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
     def filter_scores(scores:)
       return nil unless scores.any?
 
-      top_score = scores.sort { |a, b| b.fetch(:score, 0.0)<=>a.fetch(:score, 0.0) }.first
+      top_score = scores.min { |a, b| b.fetch(:score, 0.0) <=> a.fetch(:score, 0.0) }
       top_score_title = top_score.fetch(:hash, {}).fetch('title', '')
 
       pis = scores.select { |s| s.fetch(:hash, {}).fetch('title', '') == top_score_title }
@@ -103,7 +112,9 @@ module Nsf
         }
       }
     end
+    # rubocop:enable Metrics/AbcSize, Metrics/MethodLength
 
+    # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
     def record_findings(funding:, json:, score:)
       file = File.open("#{Dir.pwd}/findings.log", 'a')
       file.puts '==================================================='
@@ -117,8 +128,10 @@ module Nsf
       file.puts score.to_json
       file.close
     end
+    # rubocop:enable Metrics/AbcSize, Metrics/MethodLength
 
-    def process_response(funding:, title:, pi:, org:)
+    # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity
+    def process_response(funding:, title:, investigator:, org:)
       title_score = proximity_check(
         text_a: cleanse_title(title: funding.fetch('projectTitle', nil)),
         text_b: cleanse_title(title: title)
@@ -126,17 +139,15 @@ module Nsf
       return title_score if funding.fetch('authors', nil).nil?
 
       persons = funding.fetch('authors', [])
-      pi_score = persons.reduce(0.0) { |sum, p| sum + proximity_check(text_a: p, text_b: pi) }
-
       return 0.0 if funding.nil? || title.nil?
 
-      auth_hash = persons.map { |a|
+      auth_hash = persons.map do |a|
         a.split('|')
         {
           author: a[0],
           organization: a[1]
         }
-      }
+      end
       auths = auth_hash.collect { |a| a[:author] }
       orgs = auth_hash.collect { |o| o[:organization] }
 
@@ -147,9 +158,10 @@ module Nsf
       return title_score if (orgs.empty? && auths.empty?) || title_score < 0.7
 
       pi_org_score = org_scoring(orgs: orgs, pi_org: org)
-      pi_score = author_scoring(authors: auths, pi: pi)
+      pi_score = author_scoring(authors: auths, investigator: investigator)
       title_score + pi_score + pi_org_score
     end
+    # rubocop:enable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity
 
     def title_scoring(title_a:, title_b:)
       return 0.0 if title_a.nil? || title_b.nil?
@@ -166,10 +178,10 @@ module Nsf
       orgs.reduce(0.0) { |sum, org| sum + proximity_check(text_a: org, text_b: pi_org) }
     end
 
-    def author_scoring(authors:, pi:)
-      return 0.0 if authors.empty? || pi.nil?
+    def author_scoring(authors:, investigator:)
+      return 0.0 if authors.empty? || investigator.nil?
 
-      authors.reduce(0.0) { |sum, auth| sum + proximity_check(text_a: auth, text_b: pi) }
+      authors.reduce(0.0) { |sum, auth| sum + proximity_check(text_a: auth, text_b: investigator) }
     end
 
     def cleanse_title(title:)
@@ -180,7 +192,7 @@ module Nsf
       # If ret is nil for any reason just use the unaltered title
       ret = title if ret.nil?
       # Remove stop words like 'The', 'An', etc.
-      ret.split(' ').select { |w| !Stopwords.is?(w) }.join(' ')
+      ret.split(' ').reject { |w| Stopwords.is?(w) }.join(' ')
     end
 
     def proximity_check(text_a:, text_b:)
@@ -189,4 +201,5 @@ module Nsf
       text_a.to_s.levenshtein_similar(text_b.to_s)
     end
   end
+  # rubocop:enable Metrics/ClassLength
 end

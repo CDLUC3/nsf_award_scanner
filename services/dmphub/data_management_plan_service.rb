@@ -1,9 +1,11 @@
+# frozen_string_literal: true
+
 require 'httparty'
 
 module Dmphub
   # Interface to the DMP Registry's API
+  # rubocop:disable Metrics/ClassLength
   class DataManagementPlanService
-
     # Expecting the following format from DMP Regsitry:
     # {
     #   "application"=>"Dmphub",
@@ -36,19 +38,19 @@ module Dmphub
     # The `update_url` is the target we want to send our changes to!
     # The `next` is the url for the next page
 
-    DEFAULT_HEADERS = headers = {
+    DEFAULT_HEADERS = {
       'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
       'Accept': 'application/json'
     }.freeze
 
-    NSF_DOI = 'http://dx.doi.org/10.13039/100000001'.freeze
+    NSF_DOI = 'http://dx.doi.org/10.13039/100000001'
 
     def initialize(config:)
-      @client_uid = "#{config['client_uid']}"
-      @client_secret = "#{config['client_secret']}"
-      @agent = "#{config['user_agent']}"
+      @client_uid = config['client_uid'].to_s
+      @client_secret = config['client_secret'].to_s
+      @agent = config['user_agent'].to_s
 
-      @base_path = "#{config['base_path']}"
+      @base_path = config['base_path'].to_s
       @auth_path = "#{@base_path}#{config['token_path']}"
       @errors = []
 
@@ -68,6 +70,8 @@ module Dmphub
       }
     end
 
+    # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+    # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
     def register_award(funding:, award:)
       return false if funding.nil? || award.nil?
 
@@ -88,19 +92,21 @@ module Dmphub
 
       payload = JSON.parse(resp.body)
       p payload['errors'] unless payload['error'].nil?
-      return false
+      false
     end
+    # rubocop:enable Metrics/AbcSize, Metrics/MethodLength
+    # rubocop:enable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
 
-    def register_person(funding:, award:)
-
-    end
+    def register_person(funding:, award:); end
 
     private
 
+    # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
+    # rubocop:disable Metrics/CyclomaticComplexity
     def award_to_rda_common_standard(funding:, award:)
       return nil if funding['dmpDOI'].nil?
 
-      staff = award[:principal_investigators].select { |p| !p[:name].nil? }.map do |pi|
+      staff = award[:principal_investigators].reject { |p| p[:name].nil? }.map do |pi|
         {
           "name": pi[:name],
           "mbox": pi[:email],
@@ -112,19 +118,21 @@ module Dmphub
       end
 
       unless award[:program_officer][:name].nil?
+        prog = 'National Aeronautics and Space Administration (NASA)'
+        prog = 'National Science Foundation (NSF)' if award[:program_officer][:organization] == '4900'
         staff << {
           "name": award[:program_officer][:name],
           "mbox": award[:program_officer][:email],
           "contributorType": 'program_officer',
-          "organizations": [{
-            "name": award[:program_officer][:organization] == '4900' ? 'National Science Foundation (NSF)' : 'National Aeronautics and Space Administration (NASA)'
-          }]
+          "organizations": [{ "name": prog }]
         }
       end
 
       ids = []
-      ids << { 'category': 'sub_program', value: award[:identifiers][:fund_program] } unless award[:identifiers][:fund_program].nil?
-      ids << { 'category': 'program', value: award[:identifiers][:primary_program] } unless award[:identifiers][:primary_program].nil?
+      is_funded = award[:identifiers][:fund_program].nil?
+      is_primary = award[:identifiers][:primary_program].nil?
+      ids << { 'category': 'sub_program', value: award[:identifiers][:fund_program] } unless is_funded
+      ids << { 'category': 'program', value: award[:identifiers][:primary_program] } unless is_primary
 
       # We send back the `dmpDOI` so that the DMPRegistry can verify that we are
       # working with the correct DMP
@@ -141,14 +149,17 @@ module Dmphub
             "funding": [{
               "funderId": funding['funderId'],
               "grantId": award[:award_id],
-              "fundingStatus": "granted",
+              "fundingStatus": 'granted',
               "awardIds": ids
             }]
           }
         }
       }
     end
+    # rubocop:enable Metrics/AbcSize, Metrics/MethodLength
+    # rubocop:enable Metrics/CyclomaticComplexity
 
+    # rubocop:disable Metrics/MethodLength
     def retrieve_auth_token
       payload = {
         grant_type: 'client_credentials',
@@ -159,20 +170,23 @@ module Dmphub
       response = JSON.parse(resp.body)
       @token = response if resp.code == 200
       p "#{payload['error']} - #{payload['error_description']}" unless resp.code == 200
-    rescue StandardError => se
-      @errors << se.message
-      return nil
+    rescue StandardError => e
+      @errors << e.message
+      nil
     end
+    # rubocop:enable Metrics/MethodLength
 
     def authenticated_headers
       agent = "#{@agent} (#{@client_uid})"
-      DEFAULT_HEADERS.merge({
-        'User-Agent': agent,
-        'Authorization': "#{@token['token_type']} #{@token['access_token']}",
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      })
+      DEFAULT_HEADERS.merge(
+        {
+          'User-Agent': agent,
+          'Authorization': "#{@token['token_type']} #{@token['access_token']}",
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      )
     end
-
   end
+  # rubocop:enable Metrics/ClassLength
 end
