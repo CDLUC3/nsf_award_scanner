@@ -4,8 +4,9 @@ $(() => {
     $('.results').html('<ol></ol>');
     var lastResponse = false;
 
-    $.ajax({
+    $.post({
       url: '/scan',
+      data: { plan_ids: $('textarea').val() },
       xhrFields: {
         onprogress: (e) => {
           var progressResponse;

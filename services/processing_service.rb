@@ -19,7 +19,6 @@ class ProcessingService
   def process
     open_processed
     @recorder = File.open("#{Dir.pwd}/processed.yml", 'a')
-
     next_page(url: "#{@config['dmphub']['base_path']}#{@config['dmphub']['index_path']}")
 
     p "DONE #{Time.now.utc}"

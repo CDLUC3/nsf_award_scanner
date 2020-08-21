@@ -24,11 +24,15 @@ module Nsf
 
     # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
     # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
-    def find_award_by_title(_agency:, funding:)
-      return {} if funding.nil? || funding.fetch('projectTitle', nil).nil?
+    def find_award_by_title(plan:)
+      return {} if plan.nil? || plan.fetch('project', []).empty? || plan['project'].first.fetch('funding', []).empty?
 
-      url = format(@awards_path.to_s, words: cleanse_title(title: funding['projectTitle']))
-      url = CGI.encode(url.gsub(/\s/, '+'))
+      project = plan.fetch('project').first
+      funding = project.fetch('funding').first['name']
+
+      words = CGI.escape(cleanse_title(title: project['title'].downcase))
+      url = format(@awards_path.to_s, words: words)
+      # url = CGI.escape(url.gsub(/\s/, '+'))
       fields = %w[id title piName piEmail abstractText projectOutComesReport poName poEmail
                   dunsNumber startDate expDate awardeeName fundProgramName pdPIName perfLocation
                   primaryProgram transType awardee publicationResearch publicationConference
@@ -41,12 +45,15 @@ module Nsf
       return {} unless resp.code == 200
 
       payload = JSON.parse(resp.body)
+
       scores = []
       payload.fetch('response', {}).fetch('award', []).each do |award|
         next if award.fetch('title', nil).nil? || award.fetch('pdPIName', nil).nil?
 
+        # p award.inspect
+
         score = process_response(
-          funding: funding,
+          plan: plan,
           title: award.fetch('title', nil),
           investigator: award.fetch('pdPIName', nil),
           org: award.fetch('awardeeName', nil)
@@ -131,28 +138,28 @@ module Nsf
     # rubocop:enable Metrics/AbcSize, Metrics/MethodLength
 
     # rubocop:disable Metrics/AbcSize, Metrics/MethodLength, Metrics/CyclomaticComplexity
-    def process_response(funding:, title:, investigator:, org:)
+    def process_response(plan:, title:, investigator:, org:)
+      project = plan.fetch('project').first
+      contributors = plan.fetch('contributor', [])
+
       title_score = proximity_check(
-        text_a: cleanse_title(title: funding.fetch('projectTitle', nil)),
+        text_a: cleanse_title(title: plan['title'].downcase),
         text_b: cleanse_title(title: title)
       )
-      return title_score if funding.fetch('authors', nil).nil?
+      return title_score if contributors.nil? || contributors.empty?
+      return 0.0 if project.fetch('funding', []).empty? || title.nil?
 
-      persons = funding.fetch('authors', [])
-      return 0.0 if funding.nil? || title.nil?
-
-      auth_hash = persons.map do |a|
-        a.split('|')
+      auth_hash = contributors.map do |a|
         {
-          author: a[0],
-          organization: a[1]
+          author: a['name'],
+          organization: a.fetch('affiliation', {})['name']
         }
       end
       auths = auth_hash.collect { |a| a[:author] }
       orgs = auth_hash.collect { |o| o[:organization] }
 
       title_score = title_scoring(
-        title_a: cleanse_title(title: funding.fetch('projectTitle', nil)),
+        title_a: cleanse_title(title: plan['title'].downcase),
         title_b: cleanse_title(title: title)
       )
       return title_score if (orgs.empty? && auths.empty?) || title_score < 0.7

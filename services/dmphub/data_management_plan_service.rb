@@ -37,12 +37,6 @@ module Dmphub
     #
     # The `update_url` is the target we want to send our changes to!
     # The `next` is the url for the next page
-
-    DEFAULT_HEADERS = {
-      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-      'Accept': 'application/json'
-    }.freeze
-
     NSF_DOI = 'http://dx.doi.org/10.13039/100000001'
 
     def initialize(config:)
@@ -52,6 +46,7 @@ module Dmphub
 
       @base_path = config['base_path'].to_s
       @auth_path = "#{@base_path}#{config['token_path']}"
+      @create_path = "#{@base_path}#{config['create_path']}"
       @errors = []
 
       retrieve_auth_token
@@ -69,6 +64,22 @@ module Dmphub
         errors: payload.fetch('errors', [])
       }
     end
+
+    # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity
+    def publish_data_management_plan(hash:)
+      return nil if hash.nil?
+
+      retrieve_auth_token if @token.nil?
+      return false if @token.nil?
+
+      resp = HTTParty.post(@create_path, body: hash.to_json, headers: authenticated_headers)
+      return nil unless resp.present? && resp.code == 201
+
+      payload = JSON.parse(resp.body)
+      p payload['errors'] unless payload['errors'].nil? || payload['errors'].empty?
+      payload.fetch('dmp', {}).fetch('dmp_id', {})['identifier']
+    end
+    # rubocop:enable Metrics/AbcSize, Metrics/CyclomaticComplexity
 
     # rubocop:disable Metrics/AbcSize, Metrics/MethodLength
     # rubocop:disable Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity
@@ -166,7 +177,7 @@ module Dmphub
         client_id: @client_uid,
         client_secret: @client_secret
       }
-      resp = HTTParty.post(@auth_path, body: payload, headers: DEFAULT_HEADERS)
+      resp = HTTParty.post(@auth_path, body: payload.to_json, headers: default_headers)
       response = JSON.parse(resp.body)
       @token = response if resp.code == 200
       p "#{payload['error']} - #{payload['error_description']}" unless resp.code == 200
@@ -176,14 +187,19 @@ module Dmphub
     end
     # rubocop:enable Metrics/MethodLength
 
+    def default_headers
+      {
+        'User-Agent': "#{@agent} (#{@client_uid})",
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    end
+
     def authenticated_headers
-      agent = "#{@agent} (#{@client_uid})"
-      DEFAULT_HEADERS.merge(
+      default_headers.merge(
         {
-          'User-Agent': agent,
           'Authorization': "#{@token['token_type']} #{@token['access_token']}",
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Content-Type': 'application/json'
         }
       )
     end
